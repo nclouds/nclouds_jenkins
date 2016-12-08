@@ -1,0 +1,150 @@
+Description: >
+
+    This template deploys a VPC, with a pair of public and private subnets spread
+    across two Availabilty Zones. It deploys an Internet Gateway, with a default
+    route on the public subnets. It deploys a pair of NAT Gateways (one in each AZ),
+    and default routes for them in the private subnets.
+
+    It then deploys a highly available ECS cluster using an AutoScaling Group, with
+    ECS hosts distributed across multiple Availability Zones.
+
+    Finally, it deploys a pair of example ECS services from containers published in
+    Amazon EC2 Container Registry (Amazon ECR).
+
+    Last Modified: 22nd September 2016
+    Author: Paul Maddox <pmaddox@amazon.com>
+
+Parameters: 
+    KeyName: 
+        Description: Amazon EC2 Key Pair
+        Type: "AWS::EC2::KeyPair::KeyName"
+        Default: jenkins-ecs
+
+    ECSInstanceType:
+        Description: Which instance type should we use to build the ECS cluster?
+        Type: String
+        Default: t2.large
+
+    ECSClusterSize:
+        Description: How many ECS hosts do you want to initially deploy?
+        Type: Number
+        Default: 1
+    
+    Bucket:
+        Type: String
+        Description: Name of the bucket where the id_rsa key is located in an encrypted form
+        Default: jenkins-ssh
+
+    TemplateBucket:
+        Type: String
+        Description: Name of the bucket where the id_rsa key is located in an encrypted form
+        Default: jenkins-blog
+
+    RegionName:
+        Type: String
+        Description: Region name where the bucket is located.
+        Default: us-west-2
+        
+    KMSRegionName:
+        Type: String
+        Description: Region name where the KMS KEY is located.
+        Default: us-east-1
+
+    AccountNumber:
+         Description: Account number is needed for configuring ecs cluster
+         Type: String
+         Default: 123456789012
+
+    JenkinsPassword:
+        Description: Jenkins password to Set
+        Type: String
+        Default: S5P$m\q7LFWsMdYh
+    
+    RepositoryName:
+        Description: ECR name where the jenkins image is located
+        Type: String
+        Default: nclouds-jenkins/jenkins
+
+    JenkinsTag:
+        Description: Tag of the jenkins image
+        Type: String
+        Default: latest
+
+    SlaveTag:
+        Description: Tag of the jenkins slave image
+        Type: String
+        Default: slave
+
+
+Resources:
+
+    VPC:
+        Type: AWS::CloudFormation::Stack
+        Properties:
+            TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastructure/vpc.yaml
+            Parameters:
+                EnvironmentName:    !Ref AWS::StackName
+                VpcCIDR:            10.10.0.0/16
+                PublicSubnet1CIDR:  10.10.8.0/21
+                PublicSubnet2CIDR:  10.10.16.0/21
+                PrivateSubnet1CIDR: 10.10.24.0/21
+                PrivateSubnet2CIDR: 10.10.32.0/21
+
+    SecurityGroups:
+        Type: AWS::CloudFormation::Stack
+        Properties:
+            TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastructure/security-groups.yaml
+            Parameters:
+                EnvironmentName: !Ref AWS::StackName
+                VPC: !GetAtt VPC.Outputs.VPC
+
+    ALB:
+        Type: AWS::CloudFormation::Stack
+        Properties:
+            TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastructure/load-balancers.yaml
+            Parameters:
+                EnvironmentName: !Ref AWS::StackName
+                VPC: !GetAtt VPC.Outputs.VPC
+                Subnets: !GetAtt VPC.Outputs.PublicSubnets
+                SecurityGroup: !GetAtt SecurityGroups.Outputs.LoadBalancerSecurityGroup
+
+    ECS:
+        Type: AWS::CloudFormation::Stack
+        Properties:
+            TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastructure/ecs-cluster.yaml
+            Parameters:
+                EnvironmentName: !Ref AWS::StackName
+                InstanceType: !Ref ECSInstanceType
+                ClusterSize: !Ref ECSClusterSize
+                VPC: !GetAtt VPC.Outputs.VPC
+                SecurityGroup: !GetAtt SecurityGroups.Outputs.ECSHostSecurityGroup
+                Subnets: !GetAtt VPC.Outputs.PrivateSubnets
+                KeyName: !Ref KeyName
+                Bucket: !Ref Bucket
+                RegionName: !Ref RegionName
+                KMSRegionName: !Ref KMSRegionName
+
+    JenkinsService:
+        Type: AWS::CloudFormation::Stack
+        Properties:
+            TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/services/jenkins-service/service.yaml
+            Parameters:
+                VPC: !GetAtt VPC.Outputs.VPC
+                Cluster: !GetAtt ECS.Outputs.Cluster
+                DesiredCount: 1
+                AccountNumber: !Ref AccountNumber
+                JenkinsPassword: !Ref JenkinsPassword
+                RegionName: !Ref RegionName
+                RepositoryName: !Ref RepositoryName
+                JenkinsTag: !Ref JenkinsTag
+                SlaveTag: !Ref SlaveTag
+                Listener: !GetAtt ALB.Outputs.Listener
+                Path: /*
+
+
+Outputs:
+
+
+    WebsiteServiceUrl:
+        Description: The URL endpoint for the website service
+        Value: !Join ["", [ !GetAtt ALB.Outputs.LoadBalancerUrl, "/" ]]

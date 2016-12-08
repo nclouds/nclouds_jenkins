@@ -1,0 +1,362 @@
+Description: >
+    This template deploys an ECS cluster to the provided VPC and subnets
+    using an Auto Scaling Group
+
+Parameters:
+
+    EnvironmentName:
+        Description: An environment name that will be prefixed to resource names
+        Type: String
+
+    InstanceType:
+        Description: Which instance type should we use to build the ECS cluster?
+        Type: String
+        Default: c4.large
+
+    ClusterSize:
+        Description: How many ECS hosts do you want to initially deploy?
+        Type: Number
+        Default: 4
+
+    VPC:
+        Description: Choose which VPC this ECS cluster should be deployed to
+        Type: AWS::EC2::VPC::Id
+
+    Subnets:
+        Description: Choose which subnets this ECS cluster should be deployed to
+        Type: List<AWS::EC2::Subnet::Id>
+
+    SecurityGroup:
+        Description: Select the Security Group to use for the ECS cluster hosts
+        Type: AWS::EC2::SecurityGroup::Id
+
+    KeyName:
+        Description: The key name for the ecs host
+        Type: AWS::EC2::KeyPair::KeyName
+    
+    MinSize:
+        Type: Number
+        Default: '1'
+        Description: Minimum number of ECS Instances in the ASG
+
+    MaxSize:
+        Type: Number
+        Default: '2'
+        Description: Maximum number of ECS Instances in the ASG
+
+    Desired:
+        Type: Number
+        Default: '1'
+        Description: Desired dumber of ECS Instances in the ASG cannot be less than MinSize
+
+    Bucket:
+        Type: String
+        Description: Name of the bucket where the id_rsa key is located in an encrypted form
+
+    RegionName:
+        Type: String
+        Description: Region name where the bucket is located.
+          
+    KMSRegionName:
+        Type: String
+        Description: Region name where KMS key is located.
+
+
+Mappings:
+
+    # These are the latest ECS optimized AMIs as of September 2016:
+    #
+    #   amzn-ami-2016.03.h-amazon-ecs-optimized
+    #   ECS agent:    1.12.1
+    #   Docker:       1.11.2
+    #   ecs-init:     1.12.1-1
+    #
+    # You can find the latest available on this page of our documentation:
+    # http://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html
+    # (note the AMI identifier is region specific)
+
+    AWSRegionToAMI:
+        us-east-1:
+            AMI: ami-40286957
+        us-west-1:
+            AMI: ami-70632110
+        us-west-2:
+            AMI: ami-2d1bce4d
+        eu-west-1:
+            AMI: ami-078df974
+        eu-central-1:
+            AMI: ami-d3cf3ebc
+        ap-northeast-1:
+            AMI: ami-2b6ba64a
+        ap-southeast-1:
+            AMI: ami-55598036
+        ap-southeast-2:
+            AMI: ami-0e20176d
+
+Resources:
+
+    ECSCluster:
+        Type: AWS::ECS::Cluster
+        Properties:
+            ClusterName: !Ref EnvironmentName
+
+    ECSAutoScalingGroup:
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties:
+            VPCZoneIdentifier: !Ref Subnets
+            LaunchConfigurationName: !Ref ECSLaunchConfiguration
+            MinSize: !Ref MinSize
+            MaxSize: !Ref MaxSize
+            DesiredCapacity: !Ref Desired
+            TerminationPolicies: 
+                - Default
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} ECS host
+                  PropagateAtLaunch: true
+        CreationPolicy:
+            ResourceSignal:
+                Timeout: PT5M
+        UpdatePolicy:
+            AutoScalingRollingUpdate:
+                MinInstancesInService: 1
+                MaxBatchSize: 1
+                PauseTime: PT5M
+                WaitOnResourceSignals: true
+
+    ScaleUpPolicy:
+        Type: AWS::AutoScaling::ScalingPolicy
+        Properties:
+            AdjustmentType: ChangeInCapacity
+            AutoScalingGroupName: !Ref ECSAutoScalingGroup
+            EstimatedInstanceWarmup: 300
+            MetricAggregationType: Average
+            PolicyType: StepScaling
+            StepAdjustments:
+            # The X bound is the difference between the breach threshold and the
+            # aggregated CloudWatch metric value
+                 - MetricIntervalLowerBound: "0"
+                   MetricIntervalUpperBound: "15"
+                   ScalingAdjustment: "1"
+                 - MetricIntervalLowerBound: "15"
+                   ScalingAdjustment: "2"
+
+    ScaleDownPolicy:
+        Type: AWS::AutoScaling::ScalingPolicy
+        Properties:
+            AdjustmentType: ChangeInCapacity
+            AutoScalingGroupName: !Ref ECSAutoScalingGroup
+            EstimatedInstanceWarmup: 300
+            MetricAggregationType: Average
+            PolicyType: StepScaling
+            StepAdjustments:
+            # The X bound is the difference between the breach threshold and the
+            # aggregated CloudWatch metric value
+                  - MetricIntervalUpperBound: "0"
+                    ScalingAdjustment: "-1"
+
+    MemoryScaleUpAlarm:
+        Type: "AWS::CloudWatch::Alarm"
+        Properties:
+            ActionsEnabled: true
+            AlarmActions:
+            - !Ref ScaleUpPolicy
+            AlarmDescription: >
+                The memory utilization of the ECS cluster has exceeded 90% for more than
+                one minute. Breaching this alarm should trigger an ASG scale out.
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            Dimensions:
+            - Name: ClusterName
+              Value: !Ref ECSCluster
+            EvaluationPeriods: "1"
+            MetricName: MemoryReservation
+            Namespace: AWS/ECS
+            Period: "60"
+            Statistic: Average
+            Threshold: "90"
+            Unit: Percent
+    
+    MemoryScaleDownAlarm:
+        Type: "AWS::CloudWatch::Alarm"
+        Properties:
+            ActionsEnabled: true
+            AlarmActions:
+            - !Ref ScaleDownPolicy
+            AlarmDescription: >
+                The memory utilization of the ECS cluster has dropped below 45% for more
+                than three minutes. Breaching this alarm should trigger an ASG scale in.
+            ComparisonOperator: LessThanOrEqualToThreshold
+            Dimensions:
+            - Name: ClusterName
+              Value: !Ref ECSCluster
+            EvaluationPeriods: "3"
+            MetricName: MemoryReservation
+            Namespace: AWS/ECS
+            Period: "60"
+            Statistic: Average
+            Threshold: "45"
+            Unit: Percent
+
+    ECSLaunchConfiguration:
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties:
+            ImageId:  !FindInMap [AWSRegionToAMI, !Ref "AWS::Region", AMI]
+            InstanceType: !Ref InstanceType
+            KeyName: !Ref KeyName
+            SecurityGroups:
+                - !Ref SecurityGroup
+            IamInstanceProfile: !Ref ECSInstanceProfile
+            BlockDeviceMappings: 
+              - DeviceName: "/dev/xvda"
+                Ebs: 
+                  VolumeSize: "50"
+                  VolumeType: "gp2"
+              - DeviceName: "/dev/xvdcy"
+                Ebs: 
+                  VolumeSize: "100"
+                  VolumeType: "gp2"
+
+            UserData:
+                Fn::Base64: !Sub |
+                    #!/bin/bash
+                    yum install -y python-pip
+                    pip-2.6 install awscli
+                    yum install -y aws-cfn-bootstrap
+                    vgextend docker /dev/xvdcy
+                    lvextend -L+100G /dev/docker/docker-pool
+                    /opt/aws/bin/cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSLaunchConfiguration 
+                    /opt/aws/bin/cfn-signal -e 0 --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSAutoScalingGroup 
+
+        Metadata:
+            AWS::CloudFormation::Init:
+                config:
+                    files:
+                        "/tmp/id_rsa":
+                            source: !Sub https://${Bucket}.s3-${RegionName}.amazonaws.com/id_rsa
+                            mode: 000644
+                            owner: root
+                            group: root
+                            authentication: "S3AccessCreds"
+
+                        "/etc/cfn/cfn-hup.conf":
+                            mode: 000400
+                            owner: root
+                            group: root
+                            content: !Sub |
+                                [main]
+                                stack=${AWS::StackId}
+                                region=${AWS::Region}
+
+                        "/etc/cfn/hooks.d/cfn-auto-reloader.conf":
+                            mode: 000400
+                            owner: root
+                            group: root
+                            content: !Sub |
+                                [cfn-auto-reloader-hook]
+                                triggers=post.update
+                                path=Resources.ContainerInstances.Metadata.AWS::CloudFormation::Init
+                                action=/opt/aws/bin/cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSLaunchConfiguration
+
+
+                    commands:
+                        01_add_instance_to_cluster:
+                            command: !Sub echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
+
+                        decrypting_private_file:
+                            command: !Sub /usr/local/bin/aws --region ${KMSRegionName} kms decrypt --ciphertext-blob fileb:///tmp/id_rsa --output text --query Plaintext | base64 --decode > /root/.ssh/id_rsa
+
+                        mode_permission:
+                            command: chmod 600 /root/.ssh/id_rsa
+                    services:
+                        sysvinit:
+                            cfn-hup:
+                                enabled: true
+                                ensureRunning: true
+                                files:
+                                    - /etc/cfn/cfn-hup.conf
+                                    - /etc/cfn/hooks.d/cfn-auto-reloader.conf
+            
+            AWS::CloudFormation::Authentication:
+                S3AccessCreds:
+                    type: "S3"
+                    roleName:
+                        Ref: ECSRole
+                    buckets: 
+                        - !Ref Bucket                      
+    # This IAM Role is attached to all of the ECS hosts. It is based on the default role
+    # published here:
+    # http://docs.aws.amazon.com/AmazonECS/latest/developerguide/instance_IAM_role.html
+    #
+    # You can add other IAM policy statements here to allow access from your ECS hosts
+    # to other AWS services. Please note that this role will be used by ALL containers
+    # running on the ECS host.
+
+    ECSRole:
+        Type: AWS::IAM::Role
+        Properties:
+            Path: /
+            RoleName: !Sub ${EnvironmentName}-ECSRole-${AWS::Region}
+            AssumeRolePolicyDocument: |
+                {
+                    "Statement": [{
+                        "Action": "sts:AssumeRole",
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": "ec2.amazonaws.com"
+                        }
+                    }]
+                }
+            Policies:
+                - PolicyName: ecs-service
+                  PolicyDocument: |
+                    {
+                        "Statement": [{
+                            "Effect": "Allow",
+                            "Action": [
+                                "ecs:CreateCluster",
+                                "ecs:DeregisterContainerInstance",
+                                "ecs:DiscoverPollEndpoint",
+                                "ecs:Poll",
+                                "ecs:RegisterContainerInstance",
+                                "ecs:StartTelemetrySession",
+                                "ecs:Submit*",
+                                "ecr:*",
+                                "logs:CreateLogStream",
+                                "logs:PutLogEvents",
+                                "ecr:BatchCheckLayerAvailability",
+                                "ecr:BatchGetImage",
+                                "ecr:GetDownloadUrlForLayer",
+                                "ecr:GetAuthorizationToken",
+                                "s3:CopyObject",
+                                "s3:GetObject",
+                                "s3:ListObjects",
+                                "s3:PutObject"
+                            ],
+                            "Resource": "*"
+                        }]
+                    }
+    RolePolicies:
+        Type: AWS::IAM::Policy
+        Properties:
+            PolicyName: S3Download
+            PolicyDocument:
+                Statement:
+                - Effect: Allow
+                  Action: "*"
+                  
+                  Resource: "*"
+            Roles:
+                - !Ref ECSRole
+
+    ECSInstanceProfile:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+            Path: /
+            Roles:
+                - !Ref ECSRole
+
+Outputs:
+
+    Cluster:
+        Description: A reference to the ECS cluster
+        Value: !Ref ECSCluster

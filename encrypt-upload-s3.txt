@@ -1,0 +1,19 @@
+=> Generating KAM key id
+
+1. Go to IAM Service on the aws console (https://console.aws.amazon.com/iam/home?region=us-east-1#encryptionKeys)
+2. Click on Create Key
+	- Name accordingly and select key Material Origin KMS
+3. Give permission accordingly 
+4. Note Key ID 
+
+
+=> Encrypting user's private key and uploading to s3
+
+1. Install aws cli and configure the cli (http://docs.aws.amazon.com/cli/latest/userguide/installing.html)
+2. Encrypting the content and uploading to s3-
+
+        aws --region us-east-1 kms encrypt --key-id 01ded7cc-c5b9-409b-9dec-b4c397bb85ee --plaintext fileb://~/.ssh/id_rsa --query CiphertextBlob --output text | base64 --decode > id_rsa
+
+3. Upload encrypted id_rsa to s3 bucket through awscli 
+		
+		s3cmd put id_rsa s3://private-bucket/id_rsa
