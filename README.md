@@ -12,6 +12,8 @@ The repository consists of a set of nested templates that deploy the following:
 
 ###  Generating KMS key id
 
+We store the encrypted SSH keys in KMS to checkout the code for build. Follow these steps to generate new KMS key
+
 1. Go to IAM Service on the aws console (https://console.aws.amazon.com/iam/home?region=us-east-1#encryptionKeys)
 2. Click on Create Key
 	- Name accordingly and select key Material Origin KMS
