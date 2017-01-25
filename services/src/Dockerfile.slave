@@ -34,4 +34,9 @@ RUN \
 RUN pip install ecs-deploy awscli
 RUN mkdir /root/.ssh
 RUN mkdir /home/jenkins/.ssh
+
+COPY slave-entrypoint.sh /usr/local/bin/slave-entrypoint.sh
+RUN chmod +x /usr/local/bin/slave-entrypoint.sh
+
 USER jenkins
+ENTRYPOINT ["slave-entrypoint.sh"]
