@@ -43,12 +43,12 @@ Parameters:
 
     JenkinsTag:
         Description: Tag of the jenkins image
-        Type: String        
-    
+        Type: String
+
     SlaveTag:
         Description: Tag of the jenkins slave image
         Type: String
-        
+
 
 Resources:
 
@@ -59,7 +59,7 @@ Resources:
             Role: !Ref ServiceRole
             DesiredCount: !Ref DesiredCount
             TaskDefinition: !Ref TaskDefinition
-            DeploymentConfiguration: 
+            DeploymentConfiguration:
                MaximumPercent: 100
                MinimumHealthyPercent: 0
             LoadBalancers:
@@ -72,7 +72,7 @@ Resources:
         Properties:
             TaskRoleArn: !Ref Taskrole
             Volumes:
-                - 
+                -
                   Name: ssh-vol
                   Host:
                     SourcePath: "/root/.ssh"
@@ -90,11 +90,13 @@ Resources:
                        Value: !Ref RegionName
                      - Name: SLAVE_IMAGE
                        Value: !Sub ${AccountNumber}.dkr.ecr.${RegionName}.amazonaws.com/${RepositoryName}:${SlaveTag}
+                     - Name: slaveName
+                       Value: jnlp-slave
                   MountPoints:
                     - ContainerPath: "/root/.ssh"
                       SourceVolume: ssh-vol
                       ReadOnly: false
-             
+
                   Memory: 2000
                   PortMappings:
                     - ContainerPort: 8080
