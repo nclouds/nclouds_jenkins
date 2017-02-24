@@ -1,0 +1,9 @@
+version: "2"
+services:
+  jenkins:
+     extends:
+        file: services/docker-compose.yml
+        service: jenkins
+     environment:
+       slaveName: ""
+       JENKINS_PASSWORD: admin123!
