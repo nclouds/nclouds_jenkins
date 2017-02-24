@@ -1,0 +1,10 @@
+version: "2"
+services:
+  jenkins:
+     extends:
+        file: services/docker-compose.yml
+        service: jenkins
+     environment:
+       slaveName: ""
+     volumes:
+       - ./services/src/jobs:/usr/share/jenkins/ref/jobs/seed-job/workspace/jobs/
