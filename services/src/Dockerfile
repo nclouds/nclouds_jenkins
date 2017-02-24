@@ -11,7 +11,6 @@ RUN python get-pip.py
 RUN pip install ecs-deploy awscli
 RUN mkdir /root/.ssh
 COPY seed-job.groovy /usr/share/jenkins/ref/init.groovy.d/
-COPY auth.groovy /usr/share/jenkins/ref/init.groovy.d/
-COPY cloud.groovy /usr/share/jenkins/ref/init.groovy.d/
-COPY init.groovy /usr/share/jenkins/ref/init.groovy
-COPY jobs/ /usr/share/jenkins/ref/jobs/seed-job/workspace/jobs/
+COPY cloud.groovy    /usr/share/jenkins/ref/init.groovy.d/
+COPY init.groovy     /usr/share/jenkins/ref/init.groovy
+COPY jobs/           /usr/share/jenkins/ref/jobs/seed-job/workspace/jobs/
