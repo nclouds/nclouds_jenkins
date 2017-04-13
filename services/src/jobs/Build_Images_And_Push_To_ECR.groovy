@@ -4,6 +4,9 @@ pipelineJob('Build-Images-And-Push-To-ECR') {
     stringParam('BRANCH_NAME', 'master', 'branch name to build the docker image')
     stringParam('REGISTRY_NAME', 'https://123456012.dkr.ecr.us-east-1.amazonaws.com', 'name of the ecr')
   }
+  environmentVariables {
+      env('slaveName', slaveName)
+  }
 
   definition {
     cps {
