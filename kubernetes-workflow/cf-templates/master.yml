@@ -1,0 +1,111 @@
+Description: >
+  This template deploys a kubernetes master node using kubeadm, with
+  weave as network driver and helm installed.
+
+Parameters:
+
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+
+  KeyPair:
+    Description: Key pair to ssh into the instances
+    Type: AWS::EC2::KeyPair::KeyName
+
+  Subnet:
+    Description: Subnet to deploy the cluster in
+    Type: AWS::EC2::Subnet::Id
+
+  SecurityGroup:
+    Description: Security group to launch the instances in
+    Type: AWS::EC2::SecurityGroup::Id
+
+  MasterInstanceType:
+    Description: Instance type for the master node
+    Type: String
+    Default: "t2.medium"
+    AllowedValues:
+      - "t2.micro"
+      - "t2.medium"
+      - "t2.large"
+
+  ClusterJoinToken:
+    Description: Kubeadm secret token
+    Type: String
+
+Mappings:
+
+  AWSRegionToAMI:
+    us-east-1:
+      AMI: ami-d15a75c7
+    us-east-2:
+      AMI: ami-8b92b4ee
+    us-west-1:
+      AMI: ami-73f7da13
+    us-west-2:
+      AMI: ami-835b4efa
+
+Resources:
+
+  MasterInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      KeyName: !Ref KeyPair
+      InstanceType: !Ref MasterInstanceType
+      ImageId:
+        Fn::FindInMap:
+          - "AWSRegionToAMI"
+          - Ref: "AWS::Region"
+          - "AMI"
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref SecurityGroup
+          SubnetId: !Ref Subnet
+      UserData:
+        "Fn::Base64": !Sub |
+          #!/bin/bash
+          apt-get update && apt-get install -y apt-transport-https
+          curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+          cat <<EOF >/etc/apt/sources.list.d/kubernetes.list
+          deb http://apt.kubernetes.io/ kubernetes-xenial main
+          EOF
+          apt-get update
+          apt-get install -y docker-engine
+          apt-get install -y kubelet kubeadm kubernetes-cni
+          apt-get install -y python-pip
+          export LC_ALL=C
+          pip install awscli
+
+          kubeadm init --token="${ClusterJoinToken}" --apiserver-advertise-address=$(curl http://169.254.169.254/latest/meta-data/public-ipv4)
+
+          mkdir -p /home/ubuntu/.kube
+          cp /etc/kubernetes/admin.conf home/ubuntu/.kube/config
+          chown ubuntu:ubuntu home/ubuntu/.kube/config
+          export KUBECONFIG=home/ubuntu/.kube/config
+          echo $KUBECONFIG
+
+          su ubuntu
+
+          kubectl apply -f https://git.io/weave-kube-1.6
+
+          curl https://raw.githubusercontent.com/kubernetes/helm/master/scripts/get > get_helm.sh
+          chmod 700 get_helm.sh
+          ./get_helm.sh
+          helm init
+
+          kubectl create clusterrolebinding add-on-cluster-admin --clusterrole=cluster-admin --serviceaccount=kube-system:default
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} k8-Master
+
+Outputs:
+
+  MasterInstance:
+    Description: A reference to the master node
+    Value: !Ref MasterInstance
+
+  MasterNodeIP:
+    Description: IP address of the kubernetes master node
+    Value: !GetAtt MasterInstance.PublicIp

@@ -1,0 +1,61 @@
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: jenkins-kubernetes-clusterrole
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - services
+      - endpoints
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-kubernetes-serviceaccount
+  namespace: default
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: jenkins-kubernetes2-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jenkins-kubernetes-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: jenkins-kubernetes-serviceaccount
+  namespace: default
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: jenkins-service
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: jenkins-service
+    spec:
+      serviceAccountName: jenkins-kubernetes-serviceaccount
+      imagePullSecrets:
+        - name: {{ .Values.Deployment.RegistryKeyName }}
+      containers:
+      - name: jenkins-service
+        image: {{ .Values.Deployment.Image }}:{{ .Values.Deployment.Tag }}
+        imagePullPolicy: {{ .Values.Deployment.PullPolicy }}
+        ports:
+        - containerPort: {{ .Values.Master.HttpPort }}
+          name: http
+        - containerPort: {{ .Values.Master.SlavePort }}
+          name: slaveport

@@ -1,0 +1,276 @@
+Description: >
+  This template deploys the nodes for a kubernetes cluster
+
+Parameters:
+
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+
+  Subnet:
+    Description: Subnet to deploy the cluster in
+    Type: AWS::EC2::Subnet::Id
+
+  MinNodes:
+    Type: Number
+    Description: Min number of nodes in the cluster
+
+  MaxNodes:
+    Type: Number
+    Description: Max number of nodes in the cluster
+
+  DesiredNodes:
+    Type: Number
+    Description: Desired number of nodes in the cluster
+
+  ScaleUpTreshold:
+      Type: Number
+      Description: The percentage of memory to scale up
+
+  ScaleDownTreshold:
+      Type: Number
+      Description: The percentage of memory to scale down
+
+  NodesInstanceType:
+    Description: Instance type for the master node
+    Type: String
+    Default: "t2.medium"
+    AllowedValues:
+      - "t2.micro"
+      - "t2.medium"
+      - "t2.large"
+
+  KeyPair:
+    Description: Key pair to ssh into the instances
+    Type: AWS::EC2::KeyPair::KeyName
+
+  SecurityGroup:
+    Description: Security group to launch the instances in
+    Type: AWS::EC2::SecurityGroup::Id
+
+  MasterNodeIp:
+    Type: String
+    Description: IP address of the kubernetes master node
+
+  ClusterJoinToken:
+    Description: Kubeadm secret token
+    Type: String
+
+Mappings:
+
+  AWSRegionToAMI:
+    us-east-1:
+      AMI: ami-d15a75c7
+    us-east-2:
+      AMI: ami-8b92b4ee
+    us-west-1:
+      AMI: ami-73f7da13
+    us-west-2:
+      AMI: ami-835b4efa
+
+Resources:
+
+  NodesAutoScalingGroup:
+      Type: AWS::AutoScaling::AutoScalingGroup
+      Properties:
+        VPCZoneIdentifier:
+          - !Ref Subnet
+        LaunchConfigurationName: !Ref NodesLaunchConfiguration
+        MinSize: !Ref MinNodes
+        MaxSize: !Ref MaxNodes
+        DesiredCapacity: !Ref DesiredNodes
+        TerminationPolicies:
+          - Default
+        Tags:
+          - Key: Name
+            Value: !Sub ${EnvironmentName} k8-node
+            PropagateAtLaunch: true
+      CreationPolicy:
+          ResourceSignal:
+              Timeout: PT15M
+      UpdatePolicy:
+          AutoScalingRollingUpdate:
+              MinInstancesInService: 1
+              MaxBatchSize: 1
+              PauseTime: PT15M
+              WaitOnResourceSignals: true
+
+  ScaleUpPolicy:
+      Type: AWS::AutoScaling::ScalingPolicy
+      Properties:
+          AdjustmentType: ChangeInCapacity
+          AutoScalingGroupName: !Ref NodesAutoScalingGroup
+          EstimatedInstanceWarmup: 300
+          MetricAggregationType: Average
+          PolicyType: StepScaling
+          StepAdjustments:
+          # The X bound is the difference between the breach threshold and the
+          # aggregated CloudWatch metric value
+               - MetricIntervalLowerBound: "0"
+                 ScalingAdjustment: "1"
+
+  ScaleDownPolicy:
+      Type: AWS::AutoScaling::ScalingPolicy
+      Properties:
+          AdjustmentType: ChangeInCapacity
+          AutoScalingGroupName: !Ref NodesAutoScalingGroup
+          EstimatedInstanceWarmup: 300
+          MetricAggregationType: Average
+          PolicyType: StepScaling
+          StepAdjustments:
+          # The X bound is the difference between the breach threshold and the
+          # aggregated CloudWatch metric value
+                - MetricIntervalUpperBound: "0"
+                  ScalingAdjustment: "-1"
+
+  MemoryScaleUpAlarm:
+      Type: "AWS::CloudWatch::Alarm"
+      Properties:
+          ActionsEnabled: true
+          AlarmActions:
+          - !Ref ScaleUpPolicy
+          AlarmDescription: >
+              The MemoryReservation of the kubernetes cluster has exceeded the threshold for more than
+              one minute. Breaching this alarm should trigger an ASG scale out.
+          ComparisonOperator: GreaterThanOrEqualToThreshold
+          Dimensions:
+          - Name: AutoScalingGroupName
+            Value: !Ref NodesAutoScalingGroup
+          EvaluationPeriods: "1"
+          MetricName: MemoryUtilization
+          Namespace: System/Linux
+          Period: "60"
+          Statistic: Average
+          Threshold: !Ref ScaleUpTreshold
+          Unit: Percent
+
+  MemoryScaleDownAlarm:
+      Type: "AWS::CloudWatch::Alarm"
+      Properties:
+          ActionsEnabled: true
+          AlarmActions:
+          - !Ref ScaleDownPolicy
+          AlarmDescription: >
+              The MemoryReservation of the kuberntes cluster has dropped below the threshold for more
+              than three minutes. Breaching this alarm should trigger an ASG scale in.
+          ComparisonOperator: LessThanOrEqualToThreshold
+          Dimensions:
+          - Name: AutoScalingGroupName
+            Value: !Ref NodesAutoScalingGroup
+          EvaluationPeriods: "3"
+          MetricName: MemoryUtilization
+          Namespace: System/Linux
+          Period: "60"
+          Statistic: Average
+          Threshold: !Ref ScaleDownTreshold
+          Unit: Percent
+
+  NodesLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      AssociatePublicIpAddress: true
+      ImageId:  !FindInMap [AWSRegionToAMI, !Ref "AWS::Region", AMI]
+      InstanceType: !Ref NodesInstanceType
+      KeyName: !Ref KeyPair
+      SecurityGroups:
+        - !Ref SecurityGroup
+      IamInstanceProfile: !Ref ASGInstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            VolumeSize: "20"
+            VolumeType: "gp2"
+      UserData:
+        "Fn::Base64": !Sub |
+          #!/bin/bash
+          apt-get update && apt-get install -y apt-transport-https python-pip python-dev build-essential unzip libwww-perl libdatetime-perl
+          export LC_ALL=C
+          pip install awscli
+          pip install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+          ln -s /root/aws-cfn-bootstrap-latest/init/ubuntu/cfn-hup /etc/init.d/cfn-hup
+
+          curl http://aws-cloudwatch.s3.amazonaws.com/downloads/CloudWatchMonitoringScripts-1.2.1.zip -O
+          unzip CloudWatchMonitoringScripts-1.2.1.zip
+          rm CloudWatchMonitoringScripts-1.2.1.zip
+          cd aws-scripts-mon
+          echo "*/5 * * * * root /aws-scripts-mon/mon-put-instance-data.pl --auto-scaling --mem-util --mem-used --from-cron" >> /etc/crontab
+
+          curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+          cat <<EOF >/etc/apt/sources.list.d/kubernetes.list
+          deb http://apt.kubernetes.io/ kubernetes-xenial main
+          EOF
+          apt-get update
+          apt-get install -y docker-engine
+          apt-get install -y kubelet kubeadm kubernetes-cni
+
+          kubeadm join --token ${ClusterJoinToken} ${MasterNodeIp}:6443
+
+          cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource NodesLaunchConfiguration
+          cfn-signal -e 0 --region ${AWS::Region} --stack ${AWS::StackName} --resource NodesAutoScalingGroup
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          files:
+            "/etc/cfn/cfn-hup.conf":
+              mode: 000400
+              owner: root
+              group: root
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+            "/etc/cfn/hooks.d/cfn-auto-reloader.conf":
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.ContainerInstances.Metadata.AWS::CloudFormation::Init
+                action=cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource NodesLaunchConfiguration
+          services:
+              sysvinit:
+                  cfn-hup:
+                      enabled: true
+                      ensureRunning: true
+                      files:
+                          - /etc/cfn/cfn-hup.conf
+                          - /etc/cfn/hooks.d/cfn-auto-reloader.conf
+
+  ASGRole:
+      Type: AWS::IAM::Role
+      Properties:
+          Path: /
+          RoleName: !Sub ${EnvironmentName}-ASGRole-${AWS::Region}
+          AssumeRolePolicyDocument: |
+              {
+                  "Statement": [{
+                      "Action": "sts:AssumeRole",
+                      "Effect": "Allow",
+                      "Principal": {
+                          "Service": "ec2.amazonaws.com"
+                      }
+                  }]
+              }
+          Policies:
+              - PolicyName: kubernetes-service
+                PolicyDocument: |
+                  {
+                      "Statement": [{
+                          "Effect": "Allow",
+                          "Action": [
+                              "cloudformation:SignalResource",
+                              "logs:CreateLogStream",
+                              "logs:PutLogEvents",
+                              "cloudwatch:PutMetricData",
+                              "cloudwatch:GetMetricStatistics",
+                              "cloudwatch:ListMetrics",
+                              "ec2:DescribeTags"
+                          ],
+                          "Resource": "*"
+                      }]
+                  }
+
+  ASGInstanceProfile:
+      Type: AWS::IAM::InstanceProfile
+      Properties:
+          Path: /
+          Roles:
+              - !Ref ASGRole
