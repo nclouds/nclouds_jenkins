@@ -6,8 +6,8 @@ You can launch this CloudFormation stack in the US East (N. Virginia, Ohio) or U
 
 ##  Deploying the kubernetes cluster
 
-1. First we need to have the CloudFormation templates in `/kubernetes-workflow` stored in S3. Create a new bucket or use an existing one.
-2. Go to your aws console and create a new CloudFormation Stack. Select `/kubernetes-workflow/main.yml` as the template.
+1. First we need to have the CloudFormation templates in `/kubernetes-workflow/cf-templates/` stored in S3. Create a new bucket or use an existing one.
+2. Go to your aws console and create a new CloudFormation Stack. Select `/kubernetes-workflow/cf-templates/main.yml` as the template.
 3. Fill in the necessary parameters to customize the cluster. Remember to input the name of the bucket you used in step 1.
 4. Once the stack deployment is completed you can get the public IP of the master node from the stack's output values.
 5. ssh into the master node and run: `kubectl get nodes`, to check that all the nodes are online and ready.
@@ -47,7 +47,7 @@ EOF
 sudo kubectl create -f /tmp/image-pull-secret.yaml
 ```
 
-3. Run: 
+3. Run:
 ```bash
 helm install ./kubernetes-workflow/jenkins-helm-chart/
 ```
