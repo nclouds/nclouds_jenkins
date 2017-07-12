@@ -1,6 +1,11 @@
 # Deploying Jenkins as microservice with Kubernetes and AWS CloudFormation
 
+This templates launches a Kubernetes cluster using kubeadm in an existing subnet. It installs weave as the network driver and helm as package manager in all the nodes. During launch its better to have all ports open and after launch completes restrict access as your services require.
 You can launch this CloudFormation stack in the US East (N. Virginia, Ohio) or US West (N.California, Oregon) Region in your account:
+
+# Overview
+
+![infrastructure-overview](images/kubernetes-infrastructure.jpeg)
 
 # Getting started
 
