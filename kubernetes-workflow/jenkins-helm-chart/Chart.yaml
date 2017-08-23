@@ -1,0 +1,12 @@
+name: jenkins-kubernetes
+home: https://jenkins.io/
+version: 0.1
+appVersion: latest
+description: Open source continuous integration server in kubernetes.
+sources:
+  - https://github.com/jenkinsci/jenkins
+  - https://github.com/jenkinsci/docker-jnlp-slave
+maintainers:
+  - name: carlosrodf
+    email: carlos.rodriguez@nclouds.com
+tillerVersion: 2.5.0

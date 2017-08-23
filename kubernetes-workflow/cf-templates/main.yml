@@ -1,0 +1,110 @@
+Description: >
+  This template deploys a kubernetes cluster inside an existing VPC, with
+  a single master and customizable number of nodes.
+
+Parameters:
+
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+
+  KeyPair:
+    Description: Key pair to ssh into the instances
+    Type: AWS::EC2::KeyPair::KeyName
+
+  Subnet:
+    Description: Subnet to deploy the cluster in
+    Type: AWS::EC2::Subnet::Id
+
+  SecurityGroup:
+    Description: Security group to launch the instances in
+    Type: AWS::EC2::SecurityGroup::Id
+
+  MasterInstanceType:
+    Description: Instance type for the master node
+    Type: String
+    Default: "t2.medium"
+    AllowedValues:
+      - "t2.micro"
+      - "t2.medium"
+      - "t2.large"
+
+  NodesInstanceType:
+    Description: Instance type for the master node
+    Type: String
+    Default: "t2.medium"
+    AllowedValues:
+      - "t2.micro"
+      - "t2.medium"
+      - "t2.large"
+
+  ClusterJoinToken:
+    Description: "Kubeadm secret token, must be in the following format: [a-z0-9]{6}\\.[a-z0-9]{16}"
+    Type: String
+    Default: fc16b6.8d2e4cf774a0143e
+
+  MinNodes:
+    Type: Number
+    Description: Min number of nodes in the cluster
+    Default: 1
+
+  MaxNodes:
+    Type: Number
+    Description: Max number of nodes in the cluster
+    Default: 2
+
+  DesiredNodes:
+    Type: Number
+    Description: Desired number of nodes in the cluster
+    Default: 1
+
+  ScaleUpTreshold:
+      Type: Number
+      Description: The percentage of memory utilization to trigger a scale out event
+
+  ScaleDownTreshold:
+      Type: Number
+      Description: The percentage of memory utilization to trigger a scale in event
+
+  TemplateBucket:
+    Type: String
+    Description: S3 bucket where the templates are stored
+    Default: kubernetes-automated-cluster
+
+Resources:
+
+  KubernetesMaster:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/master.yml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        KeyPair: !Ref KeyPair
+        Subnet: !Ref Subnet
+        SecurityGroup: !Ref SecurityGroup
+        MasterInstanceType: !Ref MasterInstanceType
+        ClusterJoinToken: !Ref ClusterJoinToken
+
+  ClusterNodes:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/nodes.yml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        Subnet: !Ref Subnet
+        MinNodes: !Ref MinNodes
+        MaxNodes: !Ref MaxNodes
+        DesiredNodes: !Ref DesiredNodes
+        ScaleUpTreshold: !Ref ScaleUpTreshold
+        ScaleDownTreshold: !Ref ScaleDownTreshold
+        NodesInstanceType: !Ref NodesInstanceType
+        KeyPair: !Ref KeyPair
+        SecurityGroup: !Ref SecurityGroup
+        MasterNodeIp: !GetAtt KubernetesMaster.Outputs.MasterNodeIP
+        ClusterJoinToken: !Ref ClusterJoinToken
+
+Outputs:
+
+  KubernetesMasterNodeIP:
+    Description: Public IP of the master node for the kubernetes cluster
+    Value: !GetAtt KubernetesMaster.Outputs.MasterNodeIP
