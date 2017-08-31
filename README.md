@@ -97,4 +97,4 @@ For slave image:-
 
 1. Create two folders infrastructure and services inside s3 bucket.
 2. Copy all of the templates under infrastructure directory to infrastructure directory of the s3 bucket
-3. Copy service.yaml template under the services directory to the services directory of the s3 bucket. 
+3. Create a jenkins-service folder inside the services folder and copy the service.yaml template from the repo services directory to the <s3 bucket>/services/jenkins-service folder.
