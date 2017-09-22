@@ -33,7 +33,7 @@ Parameters:
     KeyName:
         Description: The key name for the ecs host
         Type: AWS::EC2::KeyPair::KeyName
-    
+
     MinSize:
         Type: Number
         Default: '1'
@@ -56,7 +56,7 @@ Parameters:
     RegionName:
         Type: String
         Description: Region name where the bucket is located.
-          
+
     KMSRegionName:
         Type: String
         Description: Region name where KMS key is located.
@@ -77,7 +77,7 @@ Mappings:
 
     AWSRegionToAMI:
         us-east-1:
-            AMI: ami-40286957
+            AMI: ami-9eb4b1e5
         us-west-1:
             AMI: ami-70632110
         us-west-2:
@@ -108,7 +108,7 @@ Resources:
             MinSize: !Ref MinSize
             MaxSize: !Ref MaxSize
             DesiredCapacity: !Ref Desired
-            TerminationPolicies: 
+            TerminationPolicies:
                 - Default
             Tags:
                 - Key: Name
@@ -175,7 +175,7 @@ Resources:
             Statistic: Average
             Threshold: "90"
             Unit: Percent
-    
+
     MemoryScaleDownAlarm:
         Type: "AWS::CloudWatch::Alarm"
         Properties:
@@ -206,13 +206,13 @@ Resources:
             SecurityGroups:
                 - !Ref SecurityGroup
             IamInstanceProfile: !Ref ECSInstanceProfile
-            BlockDeviceMappings: 
+            BlockDeviceMappings:
               - DeviceName: "/dev/xvda"
-                Ebs: 
+                Ebs:
                   VolumeSize: "50"
                   VolumeType: "gp2"
               - DeviceName: "/dev/xvdcy"
-                Ebs: 
+                Ebs:
                   VolumeSize: "100"
                   VolumeType: "gp2"
 
@@ -224,15 +224,15 @@ Resources:
                     yum install -y aws-cfn-bootstrap
                     vgextend docker /dev/xvdcy
                     lvextend -L+100G /dev/docker/docker-pool
-                    /opt/aws/bin/cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSLaunchConfiguration 
-                    /opt/aws/bin/cfn-signal -e 0 --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSAutoScalingGroup 
+                    /opt/aws/bin/cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSLaunchConfiguration
+                    /opt/aws/bin/cfn-signal -e 0 --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSAutoScalingGroup
 
         Metadata:
             AWS::CloudFormation::Init:
                 config:
                     files:
                         "/tmp/id_rsa":
-                            source: !Sub https://${Bucket}.s3-${RegionName}.amazonaws.com/id_rsa
+                            source: !Sub https://s3.amazonaws.com/${Bucket}/id_rsa
                             mode: 000644
                             owner: root
                             group: root
@@ -275,14 +275,14 @@ Resources:
                                 files:
                                     - /etc/cfn/cfn-hup.conf
                                     - /etc/cfn/hooks.d/cfn-auto-reloader.conf
-            
+
             AWS::CloudFormation::Authentication:
                 S3AccessCreds:
                     type: "S3"
                     roleName:
                         Ref: ECSRole
-                    buckets: 
-                        - !Ref Bucket                      
+                    buckets:
+                        - !Ref Bucket
     # This IAM Role is attached to all of the ECS hosts. It is based on the default role
     # published here:
     # http://docs.aws.amazon.com/AmazonECS/latest/developerguide/instance_IAM_role.html
@@ -343,7 +343,7 @@ Resources:
                 Statement:
                 - Effect: Allow
                   Action: "*"
-                  
+
                   Resource: "*"
             Roles:
                 - !Ref ECSRole
